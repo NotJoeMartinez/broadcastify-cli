@@ -190,6 +190,7 @@ cython_debug/
 # custom
 .env
 archives/
+.archives
 *.mp3
 *.json
 

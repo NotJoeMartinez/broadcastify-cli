@@ -3,35 +3,48 @@ import re
 import json
 import random
 import requests
-import sys
+import click
 
 from dotenv import load_dotenv
 from pprint import pprint
 
-
 load_dotenv(".env")
 
-def main():
+BRODCASTIFY_CLI_VERSION = "0.1.0"
 
-    feed_id = sys.argv[1]
-    date = sys.argv[2]
+
+@click.group(context_settings={"help_option_names": ["-h", "--help"]})
+@click.version_option(BRODCASTIFY_CLI_VERSION, message='brodcastify-cli version: %(version)s')
+def cli():
+    pass
+
+
+@cli.command("download", help="Download archives by date and feed id")
+@click.option("--feed-id", "-id", required=True, help="Broadcastify feed id")
+@click.option("--date", "-d", required=False, help="Date in format MM/DD/YYYY") 
+@click.option("--all", "-a", is_flag=True, help="Download all archives for the feed")
+
+def download(feed_id, date, all):
+
+    if not date and not all:
+        print("Please provide a date or use the --all flag")
+        return
 
     user_agent = get_urser_agent()
+    login_cookie = get_login_cookie(user_agent)
 
-    # load loagin cookie from cookies.json if it exists
-    # otherwise get the login cookie and save it to cookies.json 
-    if os.path.exists("cookies.json"):
-        # cookies = json.load(open("cookies.json"))
-        with open("cookies.json", encoding='utf-8', errors='ignore') as f:
-            cookies = json.load(f)
-        login_cookie = f"bcfyuser1={cookies['bcfyuser1']}" 
-    else:
-        username = os.getenv("USERNAME")
-        passowrd = os.getenv("PASSWORD")
-        login_cookie = get_login_cookie(username, passowrd, user_agent)
+    if login_cookie is None:
+        print("Failed to get login cookie")
+        return
 
+    if date:
+        download_archive_by_date(feed_id, date, "archives", user_agent, login_cookie)
+        return
     
-    download_archive_by_date(feed_id, date, "archives", user_agent, login_cookie)
+    if all:
+        print("Not implemented yet")
+        return
+
 
 
 def download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie):
@@ -117,9 +130,20 @@ def get_urser_agent():
     return user_agent
 
 
-def get_login_cookie(username, password, user_agent):
+def get_login_cookie(user_agent):
+
+    # load loagin cookie from cookies.json if it exists
+    # otherwise get the login cookie and save it to cookies.json 
+    if os.path.exists("cookies.json"):
+        # cookies = json.load(open("cookies.json"))
+        with open("cookies.json", encoding='utf-8', errors='ignore') as f:
+            cookies = json.load(f)
+        return f"bcfyuser1={cookies['bcfyuser1']}" 
+
+    username = os.getenv("USERNAME")
+    password = os.getenv("PASSWORD")
+
     user_agent = str(user_agent)
-    user_agent.replace("'", "")
 
     url = "https://www.broadcastify.com/login/"
     headers = {
@@ -161,5 +185,3 @@ def get_login_cookie(username, password, user_agent):
             print(response.headers)
     return None
 
-if __name__ == '__main__':
-    main()
