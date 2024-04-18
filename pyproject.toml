@@ -34,7 +34,8 @@ dependencies = [
     "rich==13.7.1",
     "urllib3==2.2.1",
     "pydub==0.25.1", 
-    "openai-whisper==20231117"
+    "openai-whisper==20231117",
+    "openai==1.22.0"
 ]
 
 [project.scripts]

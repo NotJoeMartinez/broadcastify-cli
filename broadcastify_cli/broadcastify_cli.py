@@ -10,7 +10,8 @@ import requests
 import click
 import whisper
 
-from whisper.utils import WriteVTT
+from faster_whisper import WhisperModel
+from whisper.utils import WriteVTT, WriteJSON
 from rich.console import Console
 from rich.progress import track
 from pathlib import Path
@@ -63,8 +64,14 @@ def download(feed_id, date, range, combine, transcribe, jobs):
         return
 
     console.print(f"Downloading all archives for feed id: {feed_id}")    
-    download_all_archives(feed_id, "archives", user_agent, login_cookie, combine, jobs)
+    download_all_archives(feed_id, "archives", user_agent, login_cookie, combine, transcribe, jobs)
     console.print(f"Download complete: archives/{feed_id}/{date.replace('/', '')}")
+
+
+@cli.command("transcribe", help="Transcribe directory of audio files")
+@click.option("--directory", "-d", required=True, help="Directory containing audio files")
+def transcribe(directory):
+    transcribe_audio(directory)
 
 
 def download_archives_by_range(feed_id, start_date, end_date, output_dir, user_agent, login_cookie, combine, transcribe, jobs):
@@ -136,7 +143,8 @@ def download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie
         combine_mp3_files(f"{output_dir}/{feed_id}/{date_dir_name}", feed_id, date)
     
     if transcribe:
-        transcribe_audio(f"{output_dir}/{feed_id}/{date_dir_name}", feed_id, date)
+        transcribe_audio(f"{output_dir}/{feed_id}/{date_dir_name}")
+
 
 def download_mp3(url, output_dir, user_agent, login_cookie):
 
@@ -184,11 +192,10 @@ def get_urser_agent():
     num_var = random.randint(100, 1000)
     num_var3 = random.randint(10, 100)
     num_var2 = num_var3 % 10
-    num_var4 = random.randint(1000, 10000)
-    num_var5 = random.randint(100, 1000)
+    num_var4 = random.randint(100, 1000)
 
     user_agent = {
-        "User-Agent": f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/{num_var5}.36 (KHTML, like Gecko) "
+        "User-Agent": f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/{num_var4}.36 (KHTML, like Gecko) "
                         f"Chrome/58.0.{num_var2}.3029.{num_var} Safari/537.{num_var3}"
     }
 
@@ -274,24 +281,57 @@ def combine_mp3_files(directory, feed_id, date):
             console.print("No MP3 files found to combine.")
 
 
-def transcribe_audio(directory, feed_id, date):
+def transcribe_audio(directory):
     transcript_dir = f"{directory}/transcripts"
     os.makedirs(transcript_dir, exist_ok=True)
 
     mp3_files = sorted(glob.glob(f"{directory}/*.mp3"))
+    model_size = "large-v3"
+    model = WhisperModel(model_size, device="cpu", compute_type="int8")
 
-    model = whisper.load_model("base") 
-    for mp3_file in track(mp3_files, description="transcribing audio"):
-        audio = whisper.load_audio(mp3_file)
 
-        result = model.transcribe(audio, no_speech_threshold=2, initial_prompt="you are listening to police scanner radio traffic", language="en")
+    for audio_file in track(mp3_files, description="transcribing audio"):
+        segments, info = model.transcribe(audio_file, beam_size=5, condition_on_previous_text=False, language="en", no_speech_threshold=2, initial_prompt="you are listening to police scanner radio traffic")
 
-        transcript_fname = Path(mp3_file).stem + ".vtt"
+        transcript_fname = Path(audio_file).stem + ".json"
         transcript_path = f"{transcript_dir}/{transcript_fname}"
 
-        # Create an instance of the WriteVTT class
-        write_vtt = WriteVTT(transcript_dir)
 
-        # Write the transcript to a VTT file using the WriteVTT instance
+        output  = {
+                    "text": "",
+                    "segments": []
+                }
+
+        for segment in segments:
+            print(segment.text)
+
+            output["text"] += segment.text + " "
+
+            output["segments"].append({
+                "text": segment.text,
+                "start": segment.start,
+                "end": segment.end,
+                "seek": segment.seek
+            })
+
         with open(transcript_path, "w", encoding="utf-8") as f:
-            write_vtt.write_result(result, f)
+            json.dump(output, f, indent=4)
+
+
+
+    # model = whisper.load_model("base") 
+    # for mp3_file in track(mp3_files, description="transcribing audio"):
+    #     audio = whisper.load_audio(mp3_file)
+
+
+    #     prompt = "you are listening to police scanner radio traffic"
+    #     result = model.transcribe(audio, no_speech_threshold=2, initial_prompt=prompt,  condition_on_previous_text=False, language="en")
+        
+    #     transcript_fname = Path(mp3_file).stem + ".json"
+    #     transcript_path = f"{transcript_dir}/{transcript_fname}"
+
+    #     write_json = WriteJSON(transcript_dir)
+
+    #     with open(transcript_path, "w", encoding="utf-8") as f:
+    #         write_json.write_result(result, f)
+
