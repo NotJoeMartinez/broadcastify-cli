@@ -2,23 +2,26 @@ import os
 import re
 import json
 import random
-import requests
-import click
 import datetime
 import glob
+import warnings
 
+import requests
+import click
+import whisper
 
+from whisper.utils import WriteVTT
 from rich.console import Console
 from rich.progress import track
-
+from pathlib import Path
 from pydub import AudioSegment
-
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from dotenv import load_dotenv
 from pprint import pprint
 
 load_dotenv(".env")
+warnings.filterwarnings("ignore", module="whisper")
 
 BRODCASTIFY_CLI_VERSION = "0.1.0"
 
@@ -35,8 +38,9 @@ def cli():
 @click.option("--date", "-d", required=False, help="Date in format MM/DD/YYYY") 
 @click.option("--range", "-r", required=False, help="Date range in format MM/DD/YYYY-MM/DD/YYYY")
 @click.option("--combine", is_flag=True, help="Combine downloaded MP3 files into a single file")
+@click.option("--transcribe", "-t", is_flag=True, help="Transcribe downloaded MP3 files")
 @click.option("--jobs", "-j", type=int, default=1, help="Number of concurrent download jobs")
-def download(feed_id, date, range, combine, jobs):
+def download(feed_id, date, range, combine, transcribe, jobs):
 
     user_agent = get_urser_agent()
     login_cookie = get_login_cookie(user_agent)
@@ -47,14 +51,14 @@ def download(feed_id, date, range, combine, jobs):
 
     if date:
         console.print(f"Downloading archives for feed id: {feed_id} on {date}")
-        download_archive_by_date(feed_id, date, "archives", user_agent, login_cookie, combine, jobs)
+        download_archive_by_date(feed_id, date, "archives", user_agent, login_cookie, combine, transcribe, jobs)
         console.print(f"Download complete: archives/{feed_id}/{date.replace('/', '')}")
         return
     
     if range:
         start_date, end_date = range.split("-")
         console.print(f"Downloading archives for feed id: {feed_id} from {start_date} to {end_date}")
-        download_archives_by_range(feed_id, start_date, end_date, "archives", user_agent, login_cookie, combine, jobs)
+        download_archives_by_range(feed_id, start_date, end_date, "archives", user_agent, login_cookie, combine, transcribe, jobs)
         console.print(f"Download complete: archives/{feed_id}")
         return
 
@@ -63,7 +67,7 @@ def download(feed_id, date, range, combine, jobs):
     console.print(f"Download complete: archives/{feed_id}/{date.replace('/', '')}")
 
 
-def download_archives_by_range(feed_id, start_date, end_date, output_dir, user_agent, login_cookie, combine, jobs):
+def download_archives_by_range(feed_id, start_date, end_date, output_dir, user_agent, login_cookie, combine, transcribe, jobs):
 
     today = datetime.datetime.now().strftime("%m/%d/%Y")
 
@@ -86,10 +90,10 @@ def download_archives_by_range(feed_id, start_date, end_date, output_dir, user_a
         start_date += datetime.timedelta(days=1)
 
     for date in dates:
-        download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie, combine, jobs)
+        download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie, combine, transcribe, jobs)
 
 
-def download_all_archives(feed_id, output_dir, user_agent, login_cookie, combine, jobs):
+def download_all_archives(feed_id, output_dir, user_agent, login_cookie, combine, transcribe, jobs):
 
     # get all dates between today and exactly one year ago
     dates = []
@@ -102,11 +106,11 @@ def download_all_archives(feed_id, output_dir, user_agent, login_cookie, combine
 
 
     for date in dates:
-        download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie, combine, jobs) 
+        download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie, combine, transcribe, jobs) 
     console.print(f"Download complete: {output_dir}/{feed_id}")
 
 
-def download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie, combine, jobs):
+def download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie, combine, transcribe, jobs):
 
     base_download_url = "https://www.broadcastify.com/archives/downloadv2"
     archive_ids = get_archive_ids(feed_id, date)
@@ -130,6 +134,9 @@ def download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie
 
     if combine:
         combine_mp3_files(f"{output_dir}/{feed_id}/{date_dir_name}", feed_id, date)
+    
+    if transcribe:
+        transcribe_audio(f"{output_dir}/{feed_id}/{date_dir_name}", feed_id, date)
 
 def download_mp3(url, output_dir, user_agent, login_cookie):
 
@@ -265,3 +272,26 @@ def combine_mp3_files(directory, feed_id, date):
             print(f"Combined MP3 saved to: {output_file}")
         else:
             console.print("No MP3 files found to combine.")
+
+
+def transcribe_audio(directory, feed_id, date):
+    transcript_dir = f"{directory}/transcripts"
+    os.makedirs(transcript_dir, exist_ok=True)
+
+    mp3_files = sorted(glob.glob(f"{directory}/*.mp3"))
+
+    model = whisper.load_model("base") 
+    for mp3_file in track(mp3_files, description="transcribing audio"):
+        audio = whisper.load_audio(mp3_file)
+
+        result = model.transcribe(audio, no_speech_threshold=2, initial_prompt="you are listening to police scanner radio traffic", language="en")
+
+        transcript_fname = Path(mp3_file).stem + ".vtt"
+        transcript_path = f"{transcript_dir}/{transcript_fname}"
+
+        # Create an instance of the WriteVTT class
+        write_vtt = WriteVTT(transcript_dir)
+
+        # Write the transcript to a VTT file using the WriteVTT instance
+        with open(transcript_path, "w", encoding="utf-8") as f:
+            write_vtt.write_result(result, f)
