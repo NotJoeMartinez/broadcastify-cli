@@ -5,10 +5,13 @@ import random
 import requests
 import click
 import datetime
+import glob
 
 
 from rich.console import Console
 from rich.progress import track
+
+from pydub import AudioSegment
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -31,8 +34,9 @@ def cli():
 @click.option("--feed-id", "-id", required=True, help="Broadcastify feed id")
 @click.option("--date", "-d", required=False, help="Date in format MM/DD/YYYY") 
 @click.option("--range", "-r", required=False, help="Date range in format MM/DD/YYYY-MM/DD/YYYY")
+@click.option("--combine", is_flag=True, help="Combine downloaded MP3 files into a single file")
 @click.option("--jobs", "-j", type=int, default=1, help="Number of concurrent download jobs")
-def download(feed_id, date, range, jobs):
+def download(feed_id, date, range, combine, jobs):
 
     user_agent = get_urser_agent()
     login_cookie = get_login_cookie(user_agent)
@@ -43,23 +47,23 @@ def download(feed_id, date, range, jobs):
 
     if date:
         console.print(f"Downloading archives for feed id: {feed_id} on {date}")
-        download_archive_by_date(feed_id, date, "archives", user_agent, login_cookie, jobs)
+        download_archive_by_date(feed_id, date, "archives", user_agent, login_cookie, combine, jobs)
         console.print(f"Download complete: archives/{feed_id}/{date.replace('/', '')}")
         return
     
     if range:
         start_date, end_date = range.split("-")
         console.print(f"Downloading archives for feed id: {feed_id} from {start_date} to {end_date}")
-        download_archives_by_range(feed_id, start_date, end_date, "archives", user_agent, login_cookie, jobs)
-        console.print(f"Download complete: archives/{feed_id}/{date.replace('/', '')}")
+        download_archives_by_range(feed_id, start_date, end_date, "archives", user_agent, login_cookie, combine, jobs)
+        console.print(f"Download complete: archives/{feed_id}")
         return
 
     console.print(f"Downloading all archives for feed id: {feed_id}")    
-    download_all_archives(feed_id, "archives", user_agent, login_cookie, jobs)
+    download_all_archives(feed_id, "archives", user_agent, login_cookie, combine, jobs)
     console.print(f"Download complete: archives/{feed_id}/{date.replace('/', '')}")
 
 
-def download_archives_by_range(feed_id, start_date, end_date, output_dir, user_agent, login_cookie, jobs):
+def download_archives_by_range(feed_id, start_date, end_date, output_dir, user_agent, login_cookie, combine, jobs):
 
     today = datetime.datetime.now().strftime("%m/%d/%Y")
 
@@ -82,10 +86,10 @@ def download_archives_by_range(feed_id, start_date, end_date, output_dir, user_a
         start_date += datetime.timedelta(days=1)
 
     for date in dates:
-        download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie, jobs)
+        download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie, combine, jobs)
 
 
-def download_all_archives(feed_id, output_dir, user_agent, login_cookie, jobs):
+def download_all_archives(feed_id, output_dir, user_agent, login_cookie, combine, jobs):
 
     # get all dates between today and exactly one year ago
     dates = []
@@ -98,11 +102,11 @@ def download_all_archives(feed_id, output_dir, user_agent, login_cookie, jobs):
 
 
     for date in dates:
-        download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie, jobs) 
+        download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie, combine, jobs) 
     console.print(f"Download complete: {output_dir}/{feed_id}")
 
 
-def download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie, jobs):
+def download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie, combine, jobs):
 
     base_download_url = "https://www.broadcastify.com/archives/downloadv2"
     archive_ids = get_archive_ids(feed_id, date)
@@ -124,6 +128,8 @@ def download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie
         for future in track(as_completed(futures), total=len(futures), description=f"{date}:"):
             pass
 
+    if combine:
+        combine_mp3_files(f"{output_dir}/{feed_id}/{date_dir_name}", feed_id, date)
 
 def download_mp3(url, output_dir, user_agent, login_cookie):
 
@@ -168,15 +174,17 @@ def get_archive_ids(feedId, date):
 
 
 def get_urser_agent():
-    num_var = random.randint(100,1000)
-    num_var3 = random.randint(10,100)
+    num_var = random.randint(100, 1000)
+    num_var3 = random.randint(10, 100)
     num_var2 = num_var3 % 10
-    num_var4 = random.randint(1000,10000)
-    num_var5 = random.randint(100,1000)
+    num_var4 = random.randint(1000, 10000)
+    num_var5 = random.randint(100, 1000)
 
-    user_agent={"User-Agent": f"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/{num_var5}.36 (KHTML, like Gecko) "+
-        f"Chrome/51.{num_var2}.2704.{num_var} Safari/537.{num_var3} OPR/38.0.{num_var4}.41"}
-    
+    user_agent = {
+        "User-Agent": f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/{num_var5}.36 (KHTML, like Gecko) "
+                        f"Chrome/58.0.{num_var2}.3029.{num_var} Safari/537.{num_var3}"
+    }
+
     return user_agent
 
 
@@ -235,3 +243,25 @@ def get_login_cookie(user_agent):
 
     return None
 
+
+def combine_mp3_files(directory, feed_id, date):
+
+    date = date.replace("/", "")
+
+    mp3_files = sorted(glob.glob(f"{directory}/*.mp3"))
+    
+    combined_audio = None
+    for mp3_file in track(mp3_files, description=f"combining audio"):
+        audio = AudioSegment.from_mp3(mp3_file)
+        if combined_audio is None:
+            combined_audio = audio
+        else:
+            combined_audio += audio
+
+    with console.status("Exporting combined MP3 file...") as status:
+        if combined_audio is not None:
+            output_file = f"{directory}/combined_{feed_id}_{date}.mp3"
+            combined_audio.export(output_file, format="mp3")
+            print(f"Combined MP3 saved to: {output_file}")
+        else:
+            console.print("No MP3 files found to combine.")
