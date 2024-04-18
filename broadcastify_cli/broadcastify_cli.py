@@ -23,7 +23,6 @@ def cli():
 @click.option("--feed-id", "-id", required=True, help="Broadcastify feed id")
 @click.option("--date", "-d", required=False, help="Date in format MM/DD/YYYY") 
 @click.option("--all", "-a", is_flag=True, help="Download all archives for the feed")
-
 def download(feed_id, date, all):
 
     if not date and not all:
