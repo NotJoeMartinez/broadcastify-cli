@@ -4,6 +4,11 @@ import json
 import random
 import requests
 import click
+import datetime
+
+
+from rich.console import Console
+from rich.progress import track
 
 from dotenv import load_dotenv
 from pprint import pprint
@@ -12,6 +17,7 @@ load_dotenv(".env")
 
 BRODCASTIFY_CLI_VERSION = "0.1.0"
 
+console = Console()
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.version_option(BRODCASTIFY_CLI_VERSION, message='brodcastify-cli version: %(version)s')
@@ -22,12 +28,7 @@ def cli():
 @cli.command("download", help="Download archives by date and feed id")
 @click.option("--feed-id", "-id", required=True, help="Broadcastify feed id")
 @click.option("--date", "-d", required=False, help="Date in format MM/DD/YYYY") 
-@click.option("--all", "-a", is_flag=True, help="Download all archives for the feed")
-def download(feed_id, date, all):
-
-    if not date and not all:
-        print("Please provide a date or use the --all flag")
-        return
+def download(feed_id, date):
 
     user_agent = get_urser_agent()
     login_cookie = get_login_cookie(user_agent)
@@ -37,12 +38,28 @@ def download(feed_id, date, all):
         return
 
     if date:
+        console.print(f"Downloading archives for feed id: {feed_id} on {date}")
         download_archive_by_date(feed_id, date, "archives", user_agent, login_cookie)
         return
     
-    if all:
-        print("Not implemented yet")
-        return
+    console.print(f"Downloading all archives for feed id: {feed_id}")    
+    download_all_archives(feed_id, "archives", user_agent, login_cookie)
+
+
+def download_all_archives(feed_id, output_dir, user_agent, login_cookie):
+
+    # get all dates between today and exactly one year ago
+    dates = []
+    current_date = datetime.datetime.now()
+    one_year_ago = current_date - datetime.timedelta(days=365)
+
+    while current_date >= one_year_ago:
+        dates.append(current_date.strftime("%m/%d/%Y"))
+        current_date -= datetime.timedelta(days=1)
+
+
+    for date in dates:
+        download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie) 
 
 
 
@@ -56,16 +73,12 @@ def download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie
     os.makedirs(f"{output_dir}/{feed_id}", exist_ok=True)
     os.makedirs(f"{output_dir}/{feed_id}/{date_dir_name}", exist_ok=True)
 
-
-    for id in archive_ids:
-        # 04/17/2024 -> 20240417
+    for id in track(archive_ids, description=f"{date}:"):
         split_date = date.split("/")
         url_date = f"{split_date[2]}{split_date[0]}{split_date[1]}"
         url = f"{base_download_url}/{feed_id}/{url_date}/{id}" 
-
         current_output_dir = f"{output_dir}/{feed_id}/{date_dir_name}"
         download_mp3(url, current_output_dir, user_agent, login_cookie)
-
 
 def download_mp3(url, output_dir, user_agent, login_cookie):
 
@@ -82,18 +95,12 @@ def download_mp3(url, output_dir, user_agent, login_cookie):
     output_path = os.path.join(output_dir, file_name)
 
 
-    print(f"url: {url}")
-    print(f"file_name: {file_name}")
-    print(f"output_path: {output_path}")
-
-
     if response.status_code == 200:
 
         with open(output_path, "wb") as f:
             for chunk in response.iter_content(1024):
                 f.write(chunk)
 
-        print("Downloaded mp3 to: ", output_path)
 
     else:
         print("Failed to download mp3")
@@ -106,7 +113,6 @@ def get_archive_ids(feedId, date):
     query_params = f"feedId={feedId}&date={date}"
     full_url = f"{base_url}?{query_params}" 
 
-    print(full_url)
 
     headers = get_urser_agent()
     res = requests.get(full_url, headers=headers)
@@ -181,6 +187,7 @@ def get_login_cookie(user_agent):
                 return bcfyuser1
         else:
             print("No cookies found")
-            print(response.headers)
+            exit(1)
+
     return None
 
