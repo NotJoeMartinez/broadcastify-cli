@@ -30,8 +30,9 @@ def cli():
 @cli.command("download", help="Download archives by date and feed id")
 @click.option("--feed-id", "-id", required=True, help="Broadcastify feed id")
 @click.option("--date", "-d", required=False, help="Date in format MM/DD/YYYY") 
+@click.option("--range", "-r", required=False, help="Date range in format MM/DD/YYYY-MM/DD/YYYY")
 @click.option("--jobs", "-j", type=int, default=1, help="Number of concurrent download jobs")
-def download(feed_id, date, jobs):
+def download(feed_id, date, range, jobs):
 
     user_agent = get_urser_agent()
     login_cookie = get_login_cookie(user_agent)
@@ -43,10 +44,45 @@ def download(feed_id, date, jobs):
     if date:
         console.print(f"Downloading archives for feed id: {feed_id} on {date}")
         download_archive_by_date(feed_id, date, "archives", user_agent, login_cookie, jobs)
+        console.print(f"Download complete: archives/{feed_id}/{date.replace('/', '')}")
         return
     
+    if range:
+        start_date, end_date = range.split("-")
+        console.print(f"Downloading archives for feed id: {feed_id} from {start_date} to {end_date}")
+        download_archives_by_range(feed_id, start_date, end_date, "archives", user_agent, login_cookie, jobs)
+        console.print(f"Download complete: archives/{feed_id}/{date.replace('/', '')}")
+        return
+
     console.print(f"Downloading all archives for feed id: {feed_id}")    
     download_all_archives(feed_id, "archives", user_agent, login_cookie, jobs)
+    console.print(f"Download complete: archives/{feed_id}/{date.replace('/', '')}")
+
+
+def download_archives_by_range(feed_id, start_date, end_date, output_dir, user_agent, login_cookie, jobs):
+
+    today = datetime.datetime.now().strftime("%m/%d/%Y")
+
+    if start_date > today or end_date > today:
+        console.print("[red]Error:[/red] Invalid date range, start date and end date must be before today")
+        exit(1)
+
+    if start_date > end_date:
+        console.print("[red]Error:[/red] Invalid date range, start date must be before end date")
+        exit(1)
+
+
+    start_date = datetime.datetime.strptime(start_date, "%m/%d/%Y")
+    end_date = datetime.datetime.strptime(end_date, "%m/%d/%Y")
+
+    dates = []
+
+    while start_date <= end_date:
+        dates.append(start_date.strftime("%m/%d/%Y"))
+        start_date += datetime.timedelta(days=1)
+
+    for date in dates:
+        download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie, jobs)
 
 
 def download_all_archives(feed_id, output_dir, user_agent, login_cookie, jobs):
@@ -63,7 +99,7 @@ def download_all_archives(feed_id, output_dir, user_agent, login_cookie, jobs):
 
     for date in dates:
         download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie, jobs) 
-
+    console.print(f"Download complete: {output_dir}/{feed_id}")
 
 
 def download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie, jobs):
