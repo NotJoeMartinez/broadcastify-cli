@@ -10,6 +10,8 @@ import datetime
 from rich.console import Console
 from rich.progress import track
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from dotenv import load_dotenv
 from pprint import pprint
 
@@ -28,7 +30,8 @@ def cli():
 @cli.command("download", help="Download archives by date and feed id")
 @click.option("--feed-id", "-id", required=True, help="Broadcastify feed id")
 @click.option("--date", "-d", required=False, help="Date in format MM/DD/YYYY") 
-def download(feed_id, date):
+@click.option("--jobs", "-j", type=int, default=1, help="Number of concurrent download jobs")
+def download(feed_id, date, jobs):
 
     user_agent = get_urser_agent()
     login_cookie = get_login_cookie(user_agent)
@@ -39,14 +42,14 @@ def download(feed_id, date):
 
     if date:
         console.print(f"Downloading archives for feed id: {feed_id} on {date}")
-        download_archive_by_date(feed_id, date, "archives", user_agent, login_cookie)
+        download_archive_by_date(feed_id, date, "archives", user_agent, login_cookie, jobs)
         return
     
     console.print(f"Downloading all archives for feed id: {feed_id}")    
-    download_all_archives(feed_id, "archives", user_agent, login_cookie)
+    download_all_archives(feed_id, "archives", user_agent, login_cookie, jobs)
 
 
-def download_all_archives(feed_id, output_dir, user_agent, login_cookie):
+def download_all_archives(feed_id, output_dir, user_agent, login_cookie, jobs):
 
     # get all dates between today and exactly one year ago
     dates = []
@@ -59,11 +62,11 @@ def download_all_archives(feed_id, output_dir, user_agent, login_cookie):
 
 
     for date in dates:
-        download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie) 
+        download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie, jobs) 
 
 
 
-def download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie):
+def download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie, jobs):
 
     base_download_url = "https://www.broadcastify.com/archives/downloadv2"
     archive_ids = get_archive_ids(feed_id, date)
@@ -73,12 +76,18 @@ def download_archive_by_date(feed_id, date, output_dir, user_agent, login_cookie
     os.makedirs(f"{output_dir}/{feed_id}", exist_ok=True)
     os.makedirs(f"{output_dir}/{feed_id}/{date_dir_name}", exist_ok=True)
 
-    for id in track(archive_ids, description=f"{date}:"):
-        split_date = date.split("/")
-        url_date = f"{split_date[2]}{split_date[0]}{split_date[1]}"
-        url = f"{base_download_url}/{feed_id}/{url_date}/{id}" 
-        current_output_dir = f"{output_dir}/{feed_id}/{date_dir_name}"
-        download_mp3(url, current_output_dir, user_agent, login_cookie)
+    with ThreadPoolExecutor(max_workers=jobs) as executor:
+        futures = []
+        for id in archive_ids:
+            split_date = date.split("/")
+            url_date = f"{split_date[2]}{split_date[0]}{split_date[1]}"
+            url = f"{base_download_url}/{feed_id}/{url_date}/{id}"
+            current_output_dir = f"{output_dir}/{feed_id}/{date_dir_name}"
+            futures.append(executor.submit(download_mp3, url, current_output_dir, user_agent, login_cookie))
+
+        for future in track(as_completed(futures), total=len(futures), description=f"{date}:"):
+            pass
+
 
 def download_mp3(url, output_dir, user_agent, login_cookie):
 
@@ -140,7 +149,6 @@ def get_login_cookie(user_agent):
     # load loagin cookie from cookies.json if it exists
     # otherwise get the login cookie and save it to cookies.json 
     if os.path.exists("cookies.json"):
-        # cookies = json.load(open("cookies.json"))
         with open("cookies.json", encoding='utf-8', errors='ignore') as f:
             cookies = json.load(f)
         return f"bcfyuser1={cookies['bcfyuser1']}" 

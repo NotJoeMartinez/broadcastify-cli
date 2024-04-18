@@ -32,7 +32,8 @@ feed id: 5318
 
 Once you have the feed id you can pass it to the `download` command using the 
 `--feed-id` flag and you should specify a date with the `--date` flag in the 
-format `MM/DD/YY` 
+format `MM/DD/YY`. **It will download all available archives if `--date` is not
+specified.** 
 
 This command will download all recordings from [Dallas City Police](https://www.broadcastify.com/archives/feed/5318) on April 17th 2024:
 ```bash
