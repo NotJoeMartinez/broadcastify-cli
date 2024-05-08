@@ -1,7 +1,7 @@
 .PHONY: build install clean test
 
 build:
-	python -m build
+	python -m build 
 
 install:
 	if [ -d "archives" ]; then mv -n "archives" ".archives"; fi
