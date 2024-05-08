@@ -4,6 +4,11 @@ premium subscription.
 
 
 ### Installation 
+
+```bash
+pip install broadcastify-cli
+```
+
 ```bash
 git clone https://github.com/NotJoeMartinez/broadcastify-cli
 cd broadcastify-cli
