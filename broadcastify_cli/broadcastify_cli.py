@@ -8,10 +8,8 @@ import warnings
 
 import requests
 import click
-import whisper
 
 from faster_whisper import WhisperModel
-from whisper.utils import WriteVTT, WriteJSON
 from rich.console import Console
 from rich.progress import track
 from pathlib import Path
@@ -24,7 +22,7 @@ from pprint import pprint
 load_dotenv(".env")
 warnings.filterwarnings("ignore", module="whisper")
 
-BRODCASTIFY_CLI_VERSION = "0.1.1"
+BRODCASTIFY_CLI_VERSION = "0.1.2"
 
 console = Console()
 
